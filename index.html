@@ -3,18 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Zero Quake - Static Edition</title>
+    <title>Zero Quake - Clean Edition</title>
     <style>
         :root { --bg: #000; --panel: #111; --accent: #ff3333; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg); color: #fff; font-family: sans-serif; overflow: hidden; display: flex; flex-direction: column; }
         @media (min-width: 768px) { body { flex-direction: row; } }
 
-        /* マップエリア：常に中央固定 */
         #map-viewport { flex: 1; position: relative; overflow: hidden; display: flex; justify-content: center; align-items: center; background: #000; }
         #map-stage { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
-        #kmoni-img { max-width: 100%; max-height: 98%; object-fit: contain; filter: brightness(1.2); }
         
-        /* キャンバス：地図の真上に重ねる */
+        /* 地図の設定：最初は透明にしておき、読み込んだら表示する */
+        #kmoni-img { 
+            max-width: 100%; 
+            max-height: 98%; 
+            object-fit: contain; 
+            filter: brightness(1.2); 
+            opacity: 0; 
+            transition: opacity 0.5s;
+        }
+        
         #wave-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
 
         #info-panel { background: var(--panel); border-top: 2px solid #333; padding: 15px; z-index: 10; height: 260px; display: flex; flex-direction: column; box-sizing: border-box; }
@@ -28,7 +35,7 @@
 <body>
 <div id="map-viewport">
     <div id="map-stage">
-        <img id="kmoni-img" src="" alt="Map Loading...">
+        <img id="kmoni-img" src="" alt="" onload="this.style.opacity=1">
         <canvas id="wave-canvas"></canvas>
     </div>
 </div>
@@ -50,17 +57,24 @@
     const ctx = canvas.getContext('2d');
     let currentEEW = null; let lastEventId = "";
 
-    // 強震モニタ更新（15秒ラグ・HTTPSプロキシ）
     function updateKmoni() {
-        const now = new Date(Date.now() - 15000);
-        const fmt = (d) => d.toISOString().replace(/[-:T]/g, '').split('.')[0];
-        const ts = fmt(now);
-        const rawUrl = `www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/jma_s/${ts.substring(0,8)}/${ts}.jma_s.gif`;
+        // 20秒前の画像にして、より確実に取得できるようにする
+        const now = new Date(Date.now() - 20000);
+        const Y = now.getFullYear();
+        const M = String(now.getMonth() + 1).padStart(2, '0');
+        const D = String(now.getDate()).padStart(2, '0');
+        const h = String(now.getHours()).padStart(2, '0');
+        const m = String(now.getMinutes()).padStart(2, '0');
+        const s = String(now.getSeconds()).padStart(2, '0');
+        
+        const rawUrl = `www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/jma_s/${Y}${M}${D}/${Y}${M}${D}${h}${m}${s}.jma_s.gif`;
+        
+        // weservプロキシを使用。末尾にランダム値を付けてキャッシュを回避
         kmoniImg.src = `https://images.weserv.nl/?url=${rawUrl}&noshp&v=${Date.now()}`;
+        
         document.getElementById('clock').innerText = now.toLocaleTimeString();
     }
 
-    // 地震速報取得
     async function fetchEEW() {
         try {
             const res = await fetch('https://api.wolfx.jp/jma_eew.json');
@@ -76,26 +90,22 @@
         } catch (e) {}
     }
 
-    // 波紋描画
     function drawWaves() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (currentEEW) {
-            // 日本地図の中心座標（137.5, 37.5）を基準にした簡易座標変換
             const lon = parseFloat(currentEEW.Longitude);
             const lat = parseFloat(currentEEW.Latitude);
             const centerX = canvas.width / 2;
             const centerY = canvas.height / 2;
             
-            // 地図の画像サイズに合わせた係数（固定表示用に調整）
+            // 地図の画像サイズ（縦長）に合わせた座標調整
             const mapX = (lon - 137.5) * (canvas.width / 16) + centerX;
-            const mapY = (37.5 - lat) * (canvas.height / 12) + centerY;
+            const mapY = (37.5 - lat) * (canvas.height / 11) + centerY;
 
             const elapsed = (Date.now() - new Date(currentEEW.OriginTime).getTime()) / 1000;
             if (elapsed > 0 && elapsed < 180) {
-                // P波（青）
-                ctx.strokeStyle = 'cyan'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(mapX, mapY, elapsed * 35, 0, Math.PI * 2); ctx.stroke();
-                // S波（赤）
-                ctx.strokeStyle = 'red'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(mapX, mapY, elapsed * 20, 0, Math.PI * 2); ctx.stroke();
+                ctx.strokeStyle = 'cyan'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(mapX, mapY, elapsed * 30, 0, Math.PI * 2); ctx.stroke();
+                ctx.strokeStyle = 'red'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(mapX, mapY, elapsed * 18, 0, Math.PI * 2); ctx.stroke();
             }
         }
         requestAnimationFrame(drawWaves);
@@ -107,7 +117,8 @@
     }
 
     window.onresize = resize; resize();
-    setInterval(updateKmoni, 2000); setInterval(fetchEEW, 5000);
+    setInterval(updateKmoni, 2000); 
+    setInterval(fetchEEW, 5000);
     updateKmoni(); fetchEEW(); drawWaves();
 </script>
 </body>
