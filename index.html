@@ -3,33 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Zero Quake Clone - Final Fix</title>
+    <title>Zero Quake - Static Edition</title>
     <style>
         :root { --bg: #000; --panel: #111; --accent: #ff3333; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg); color: #fff; font-family: sans-serif; overflow: hidden; display: flex; flex-direction: column; }
         @media (min-width: 768px) { body { flex-direction: row; } }
 
+        /* マップエリア：常に中央固定 */
         #map-viewport { flex: 1; position: relative; overflow: hidden; display: flex; justify-content: center; align-items: center; background: #000; }
-        #map-stage { position: absolute; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transition: transform 1.5s cubic-bezier(0.2, 1, 0.3, 1); }
-        #kmoni-img { max-width: 100%; max-height: 95%; object-fit: contain; filter: brightness(1.2); }
+        #map-stage { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
+        #kmoni-img { max-width: 100%; max-height: 98%; object-fit: contain; filter: brightness(1.2); }
+        
+        /* キャンバス：地図の真上に重ねる */
         #wave-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
 
         #info-panel { background: var(--panel); border-top: 2px solid #333; padding: 15px; z-index: 10; height: 260px; display: flex; flex-direction: column; box-sizing: border-box; }
         @media (min-width: 768px) { #info-panel { width: 350px; height: 100%; border-top: none; border-left: 2px solid #333; } }
-        .shindo-box { background: var(--accent); font-size: 4rem; text-align: center; border-radius: 8px; font-weight: 900; margin: 10px 0; }
+        
+        #hypocenter { font-size: 1.5rem; font-weight: bold; margin: 5px 0; }
+        .shindo-box { background: var(--accent); font-size: 4rem; text-align: center; border-radius: 8px; font-weight: 900; margin: 10px 0; line-height: 1.2; }
         .label { color: #888; font-size: 0.75rem; }
     </style>
 </head>
 <body>
 <div id="map-viewport">
-    <div id="map-stage" id="stage">
+    <div id="map-stage">
         <img id="kmoni-img" src="" alt="Map Loading...">
         <canvas id="wave-canvas"></canvas>
     </div>
 </div>
 <div id="info-panel">
     <div class="label" style="color:var(--accent)">EARTHQUAKE REPORT</div>
-    <div id="hypocenter" style="font-size:1.5rem; font-weight:bold;">待機中...</div>
+    <div id="hypocenter">待機中...</div>
     <div class="label">最大震度</div>
     <div id="max-int" class="shindo-box">--</div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
@@ -40,22 +45,22 @@
 </div>
 
 <script>
-    const stage = document.getElementById('map-stage');
     const kmoniImg = document.getElementById('kmoni-img');
     const canvas = document.getElementById('wave-canvas');
     const ctx = canvas.getContext('2d');
     let currentEEW = null; let lastEventId = "";
 
+    // 強震モニタ更新（15秒ラグ・HTTPSプロキシ）
     function updateKmoni() {
         const now = new Date(Date.now() - 15000);
         const fmt = (d) => d.toISOString().replace(/[-:T]/g, '').split('.')[0];
         const ts = fmt(now);
         const rawUrl = `www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/jma_s/${ts.substring(0,8)}/${ts}.jma_s.gif`;
-        // キャッシュ対策として末尾にランダムな値を付与
         kmoniImg.src = `https://images.weserv.nl/?url=${rawUrl}&noshp&v=${Date.now()}`;
         document.getElementById('clock').innerText = now.toLocaleTimeString();
     }
 
+    // 地震速報取得
     async function fetchEEW() {
         try {
             const res = await fetch('https://api.wolfx.jp/jma_eew.json');
@@ -66,42 +71,41 @@
                 document.getElementById('max-int').innerText = data.MaxIntensity;
                 document.getElementById('mag').innerText = "M" + data.Magunitude;
                 document.getElementById('depth').innerText = data.Depth + "km";
-                focusHypocenter(data.Latitude, data.Longitude);
                 currentEEW = data; lastEventId = data.EventID;
             }
         } catch (e) {}
     }
 
-    function focusHypocenter(lat, lon) {
-        if (!lat || !lon) return;
-        // 緯度経度から移動量を計算（係数を調整）
-        let moveX = (137.5 - parseFloat(lon)) * (window.innerWidth / 15);
-        let moveY = (parseFloat(lat) - 37.5) * (window.innerHeight / 10);
-
-        // 地図が消えないように移動量を制限（画面サイズの半分までに制限）
-        const limitX = window.innerWidth * 0.4;
-        const limitY = window.innerHeight * 0.4;
-        moveX = Math.max(-limitX, Math.min(limitX, moveX));
-        moveY = Math.max(-limitY, Math.min(limitY, moveY));
-
-        stage.style.transform = `scale(1.8) translate(${moveX}px, ${moveY}px)`;
-    }
-
+    // 波紋描画
     function drawWaves() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (currentEEW) {
-            const mapX = (parseFloat(currentEEW.Longitude) - 137.5) * (canvas.width / 15) + (canvas.width / 2);
-            const mapY = (37.5 - parseFloat(currentEEW.Latitude)) * (canvas.height / 10) + (canvas.height / 2);
+            // 日本地図の中心座標（137.5, 37.5）を基準にした簡易座標変換
+            const lon = parseFloat(currentEEW.Longitude);
+            const lat = parseFloat(currentEEW.Latitude);
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            
+            // 地図の画像サイズに合わせた係数（固定表示用に調整）
+            const mapX = (lon - 137.5) * (canvas.width / 16) + centerX;
+            const mapY = (37.5 - lat) * (canvas.height / 12) + centerY;
+
             const elapsed = (Date.now() - new Date(currentEEW.OriginTime).getTime()) / 1000;
             if (elapsed > 0 && elapsed < 180) {
-                ctx.strokeStyle = 'cyan'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(mapX, mapY, elapsed * 40, 0, Math.PI * 2); ctx.stroke();
-                ctx.strokeStyle = 'red'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(mapX, mapY, elapsed * 22, 0, Math.PI * 2); ctx.stroke();
+                // P波（青）
+                ctx.strokeStyle = 'cyan'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(mapX, mapY, elapsed * 35, 0, Math.PI * 2); ctx.stroke();
+                // S波（赤）
+                ctx.strokeStyle = 'red'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(mapX, mapY, elapsed * 20, 0, Math.PI * 2); ctx.stroke();
             }
         }
         requestAnimationFrame(drawWaves);
     }
 
-    function resize() { canvas.width = canvas.parentElement.clientWidth; canvas.height = canvas.parentElement.clientHeight; }
+    function resize() {
+        canvas.width = canvas.parentElement.clientWidth;
+        canvas.height = canvas.parentElement.clientHeight;
+    }
+
     window.onresize = resize; resize();
     setInterval(updateKmoni, 2000); setInterval(fetchEEW, 5000);
     updateKmoni(); fetchEEW(); drawWaves();
