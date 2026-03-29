@@ -3,51 +3,61 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Zero Quake - Stealth Edition</title>
+    <title>Zero Quake - Ultimate Edition</title>
+    <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
     <style>
-        :root { --bg: #000; --panel: #111; --accent: #ff3333; }
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg); color: #fff; font-family: sans-serif; overflow: hidden; display: flex; flex-direction: column; }
+        :root { --bg: #000; --panel: #111; --accent: #ff3333; --font: 'DotGothic16', sans-serif; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg); color: #fff; font-family: var(--font); overflow: hidden; display: flex; flex-direction: column; }
         @media (min-width: 768px) { body { flex-direction: row; } }
+
+        /* 全画面アラート用の点滅アニメーション */
+        @keyframes alert-border {
+            0% { box-shadow: inset 0 0 0px #f00; }
+            50% { box-shadow: inset 0 0 30px #f00; }
+            100% { box-shadow: inset 0 0 0px #f00; }
+        }
+        .alerting { animation: alert-border 0.8s infinite; border: 2px solid #f00; }
 
         #map-viewport { flex: 1; position: relative; overflow: hidden; display: flex; justify-content: center; align-items: center; background: #000; }
         #map-stage { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
         
-        /* 画像：読み込み失敗時は完全に透明にする */
-        .kmoni-layer { 
-            position: absolute;
-            max-width: 100%; 
-            max-height: 98%; 
-            object-fit: contain; 
-            filter: brightness(1.2); 
-            opacity: 0;
-            z-index: 1;
-        }
-        
+        .kmoni-layer { position: absolute; max-width: 100%; max-height: 98%; object-fit: contain; filter: brightness(1.2); opacity: 0; z-index: 1; }
         .active { opacity: 1; z-index: 2; }
-
         #wave-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+
+        /* LIVE表示 */
+        #live-indicator { position: absolute; top: 10px; right: 10px; z-index: 100; font-size: 0.9rem; display: flex; align-items: center; gap: 5px; background: rgba(0,0,0,0.6); padding: 2px 8px; border-radius: 4px; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+        .dot { color: #f00; animation: blink 1s infinite; }
+
         #info-panel { background: var(--panel); border-top: 2px solid #333; padding: 15px; z-index: 10; height: 260px; display: flex; flex-direction: column; box-sizing: border-box; }
         @media (min-width: 768px) { #info-panel { width: 350px; height: 100%; border-top: none; border-left: 2px solid #333; } }
-        .shindo-box { background: var(--accent); font-size: 4rem; text-align: center; border-radius: 8px; font-weight: 900; margin: 10px 0; line-height: 1.2; }
+        
+        .shindo-box { background: var(--accent); font-size: 5rem; text-align: center; border-radius: 8px; font-weight: 900; margin: 10px 0; line-height: 1.1; text-shadow: 2px 2px #000; }
     </style>
 </head>
-<body>
+<body id="main-body">
+
 <div id="map-viewport">
+    <div id="live-indicator"><span class="dot">●</span> LIVE <span id="delay-txt" style="font-size:0.7rem; color:#888;">-25s</span></div>
     <div id="map-stage">
         <img id="kmoni-1" class="kmoni-layer active">
         <img id="kmoni-2" class="kmoni-layer">
         <canvas id="wave-canvas"></canvas>
     </div>
 </div>
+
 <div id="info-panel">
-    <div style="color:var(--accent); font-weight:bold; font-size:0.8rem;">EARTHQUAKE REPORT</div>
-    <div id="hypocenter" style="font-size:1.5rem; font-weight:bold;">待機中...</div>
+    <div id="status-label" style="color:#aaa; font-weight:bold; font-size:0.8rem;">READY / 待機中</div>
+    <div id="hypocenter" style="font-size:1.6rem; font-weight:bold; margin-top:5px;">震源地情報なし</div>
     <div id="max-int" class="shindo-box">--</div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-        <div><div style="color:#888; font-size:0.7rem;">規模</div><div id="mag" style="font-weight:bold; font-size:1.2rem;">--</div></div>
-        <div><div style="color:#888; font-size:0.7rem;">深さ</div><div id="depth" style="font-weight:bold; font-size:1.2rem;">--</div></div>
+        <div><div style="color:#888; font-size:0.8rem;">規模</div><div id="mag" style="font-size:1.4rem;">--</div></div>
+        <div><div style="color:#888; font-size:0.8rem;">深さ</div><div id="depth" style="font-size:1.4rem;">--</div></div>
     </div>
-    <div style="margin-top:auto; font-size:0.7rem; color:#444; text-align:right;">Clock: <span id="clock">00:00:00</span></div>
+    <div style="margin-top:auto; font-size:0.9rem; color:#666; text-align:right;">
+        <span id="clock">00:00:00</span>
+    </div>
 </div>
 
 <script>
@@ -57,8 +67,8 @@
     let currentEEW = null; let lastEventId = "";
 
     function updateKmoni() {
-        // ラグを25秒に設定（より確実に画像が存在する時間を狙う）
-        const now = new Date(Date.now() - 25000);
+        const delaySec = 25;
+        const now = new Date(Date.now() - (delaySec * 1000));
         const Y = now.getFullYear();
         const M = String(now.getMonth() + 1).padStart(2, '0');
         const D = String(now.getDate()).padStart(2, '0');
@@ -73,31 +83,42 @@
         const nextImg = document.getElementById(`kmoni-${nextLayerNum}`);
         const currentImg = document.getElementById(`kmoni-${activeLayer}`);
 
-        // 読み込みに失敗したら透明にする（Loadingを出さない）
         nextImg.onerror = () => { nextImg.style.opacity = 0; };
-        
         nextImg.onload = () => {
             nextImg.style.opacity = 1;
             nextImg.classList.add('active');
             currentImg.classList.remove('active');
             activeLayer = nextLayerNum;
         };
-
         nextImg.src = nextUrl;
-        document.getElementById('clock').innerText = now.toLocaleTimeString();
+        document.getElementById('clock').innerText = new Date().toLocaleTimeString();
     }
 
     async function fetchEEW() {
         try {
             const res = await fetch('https://api.wolfx.jp/jma_eew.json');
             const data = await res.json();
-            if (!data || data.Title === "Dummy") return;
-            if (data.EventID !== lastEventId) {
-                document.getElementById('hypocenter').innerText = data.Hypocenter;
-                document.getElementById('max-int').innerText = data.MaxIntensity;
-                document.getElementById('mag').innerText = "M" + data.Magunitude;
-                document.getElementById('depth').innerText = data.Depth + "km";
-                currentEEW = data; lastEventId = data.EventID;
+            
+            // 地震発生判定（Dummy以外は何らかの地震とみなす）
+            if (data && data.Title !== "Dummy") {
+                document.getElementById('main-body').classList.add('alerting');
+                document.getElementById('status-label').innerText = "🔴 地震発生 / ALERTING";
+                document.getElementById('status-label').style.color = "#ff3333";
+                
+                if (data.EventID !== lastEventId) {
+                    document.getElementById('hypocenter').innerText = data.Hypocenter;
+                    document.getElementById('max-int').innerText = data.MaxIntensity;
+                    document.getElementById('mag').innerText = "M" + data.Magunitude;
+                    document.getElementById('depth').innerText = data.Depth + "km";
+                    currentEEW = data; lastEventId = data.EventID;
+                    
+                    // スマホならバイブレーション（0.5秒）
+                    if (navigator.vibrate) navigator.vibrate(500);
+                }
+            } else {
+                document.getElementById('main-body').classList.remove('alerting');
+                document.getElementById('status-label').innerText = "READY / 待機中";
+                document.getElementById('status-label').style.color = "#aaa";
             }
         } catch (e) {}
     }
