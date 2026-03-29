@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Zero Quake Clone - Stable Edition</title>
+    <style>
+        :root {
+            --bg-color: #050505;
+            --panel-bg: rgba(20, 20, 20, 0.95);
+            --accent-red: #ff3333;
+            --text-color: #ffffff;
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            overflow: hidden;
+            display: flex;
+            height: 100dvh;
+            flex-direction: column;
+        }
+
+        @media (min-width: 768px) { body { flex-direction: row; } }
+
+        /* --- マップ表示エリア --- */
+        #map-viewport {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: #000;
+            cursor: grab;
+        }
+        #map-viewport:active { cursor: grabbing; }
+
+        #map-stage {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transform-origin: center center;
+            transition: transform 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        #kmoni-img {
+            height: 95%;
+            filter: brightness(1.2) contrast(1.1);
+            pointer-events: none;
+            user-select: none;
+            /* 画像がない時に枠線が出ないようにする */
+            border: none;
+        }
+
+        #wave-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        /* --- 情報パネル --- */
+        #info-panel {
+            background: var(--panel-bg);
+            border-top: 1px solid #333;
+            padding: 20px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+        }
+
+        @media (min-width: 768px) {
+            #info-panel { width: 360px; height: 100%; border-top: none; border-left: 1px solid #333; }
+        }
+
+        .eew-label { color: var(--accent-red); font-weight: bold; font-size: 0.9rem; letter-spacing: 2px; }
+        #hypocenter { font-size: 1.8rem; margin: 10px 0; font-weight: 800; }
+        
+        .data-row { display: flex; justify-content: space-between; margin-bottom: 15px; border-bottom: 1px solid #222; padding-bottom: 5px; }
+        .label { color: #888; font-size: 0.8rem; }
+        .value { font-size: 1.1rem; font-weight: bold; }
+
+        #max-int-box {
+            background: var(--accent-red);
+            color: white;
+            font-size: 4rem;
+            text-align: center;
+            border-radius: 10px;
+            padding: 10px;
+            font-weight: 900;
+            margin: 15px 0;
+        }
+
+        .status-footer { margin-top: auto; font-size: 0.75rem; color: #444; text-align: right; }
+    </style>
+</head>
+<body>
+
+<div id="map-viewport">
+    <div id="map-stage">
+        <img id="kmoni-img" src="" alt="地図読込中...">
+        <canvas id="wave-canvas"></canvas>
+    </div>
+</div>
+
+<div id="info-panel">
+    <div class="eew-label">EARTHQUAKE INFO</div>
+    <div id="hypocenter">待機中...</div>
+    
+    <div class="data-row">
+        <div class="info-item">
+            <div class="label">マグニチュード</div>
+            <div id="mag" class="value">--</div>
+        </div>
+        <div class="info-item" style="text-align: right;">
+            <div class="label">深さ</div>
+            <div id="depth" class="value">--</div>
+        </div>
+    </div>
+
+    <div class="label">最大震度</div>
+    <div id="max-int-box">--</div>
+
+    <div class="status-footer">
+        Live: <span id="clock">00:00:00</span>
+    </div>
+</div>
+
+<script>
+    const stage = document.getElementById('map-stage');
+    const kmoniImg = document.getElementById('kmoni-img');
+    const canvas = document.getElementById('wave-canvas');
+    const ctx = canvas.getContext('2d');
+
+    let currentEEW = null;
+    let lastEventId = "";
+    let scale = 1, posX = 0, posY = 0;
+
+    // --- 1. 強震モニタ画像の更新 (HTTPSプロキシ経由) ---
+    function updateKmoni() {
+        // サーバー遅延を考慮して5秒前のデータを取得
+        const now = new Date(Date.now() - 5000);
+        const Y = now.getFullYear();
+        const M = String(now.getMonth() + 1).padStart(2, '0');
+        const D = String(now.getDate()).padStart(2, '0');
+        const h = String(now.getHours()).padStart(2, '0');
+        const m = String(now.getMinutes()).padStart(2, '0');
+        const s = String(now.getSeconds()).padStart(2, '0');
+        
+        const rawUrl = `http://www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/jma_s/${Y}${M}${D}/${Y}${M}${D}${h}${m}${s}.jma_s.gif`;
+        
+        // HTTPSの制限を回避するために weserv.nl プロキシを使用
+        kmoniImg.src = `https://images.weserv.nl/?url=${encodeURIComponent(rawUrl.replace('http://', ''))}`;
+        
+        document.getElementById('clock').innerText = `${h}:${m}:${s}`;
+    }
+
+    // --- 2. EEW情報の取得 ---
+    async function fetchEEW() {
+        try {
+            const res = await fetch('https://api.wolfx.jp/jma_eew.json');
+            const data = await res.json();
+            if (!data || data.Title === "Dummy") return;
+
+            if (data.EventID !== lastEventId) {
+                document.getElementById('hypocenter').innerText = data.Hypocenter;
+                document.getElementById('max-int-box').innerText = data.MaxIntensity;
+                document.getElementById('mag').innerText = "M" + data.Magunitude;
+                document.getElementById('depth').innerText = data.Depth + "km";
+                
+                // 自動ズーム発動
+                focusHypocenter(data.Latitude, data.Longitude);
+                currentEEW = data;
+                lastEventId = data.EventID;
+            }
+        } catch (e) { console.error("EEW Fetch Error", e); }
+    }
+
+    function focusHypocenter(lat, lon) {
+        if (!lat || !lon) return;
+        const targetX = (parseFloat(lon) - 137.5) * (canvas.width / 15); 
+        const targetY = (37.5 - parseFloat(lat)) * (canvas.height / 10);
+        scale = 2.2;
+        posX = -targetX * scale;
+        posY = -targetY * scale;
+        stage.style.transform = `translate(${posX}px, ${posY}px) scale(${scale})`;
+    }
+
+    // --- 3. 波紋描画 ---
+    function drawWaves() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (currentEEW) {
+            const lon = parseFloat(currentEEW.Longitude);
+            const lat = parseFloat(currentEEW.Latitude);
+            const mapX = (lon - 137.5) * (canvas.width / 15) + (canvas.width / 2);
+            const mapY = (37.5 - lat) * (canvas.height / 10) + (canvas.height / 2);
+
+            const originTime = new Date(currentEEW.OriginTime).getTime();
+            const elapsed = (Date.now() - originTime) / 1000;
+
+            if (elapsed > 0 && elapsed < 180) {
+                ctx.beginPath();
+                ctx.arc(mapX, mapY, elapsed * 45, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(0, 180, 255, 0.7)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(mapX, mapY, elapsed * 25, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(255, 50, 50, 0.9)';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+            }
+        }
+        requestAnimationFrame(drawWaves);
+    }
+
+    // --- 4. 初期化 ---
+    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+    window.onresize = resize;
+    resize();
+
+    setInterval(updateKmoni, 1000);
+    setInterval(fetchEEW, 5000);
+    updateKmoni();
+    fetchEEW();
+    drawWaves();
+</script>
+</body>
+</html>
