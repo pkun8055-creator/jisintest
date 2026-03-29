@@ -3,37 +3,171 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Zero Quake Clone - Stable Edition</title>
+    <title>Zero Quake - Debug Edition</title>
     <style>
         :root {
             --bg-color: #050505;
-            --panel-bg: rgba(20, 20, 20, 0.95);
-            --accent-red: #ff3333;
-            --text-color: #ffffff;
+            --panel-bg: #151515;
+            --accent: #ff3333;
         }
 
         body {
             margin: 0;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            font-family: 'Helvetica Neue', Arial, sans-serif;
-            overflow: hidden;
+            background: var(--bg-color);
+            color: white;
+            font-family: sans-serif;
             display: flex;
             height: 100dvh;
-            flex-direction: column;
+            flex-direction: column; /* スマホ: 縦 */
         }
 
-        @media (min-width: 768px) { body { flex-direction: row; } }
+        @media (min-width: 768px) {
+            body { flex-direction: row; } /* PC: 横 */
+        }
 
-        /* --- マップ表示エリア --- */
+        /* --- マップエリア (ここが重要) --- */
         #map-viewport {
             flex: 1;
             position: relative;
-            overflow: hidden;
             background: #000;
-            cursor: grab;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
-        #map-viewport:active { cursor: grabbing; }
+
+        #map-stage {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transform-origin: center center;
+            transition: transform 1s ease-out;
+            z-index: 1;
+        }
+
+        #kmoni-img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain; /* 画面内に収める */
+            filter: brightness(1.2);
+            /* デバッグ用：地図の場所に枠線を出す */
+            border: 1px solid rgba(0, 100, 255, 0.5); 
+        }
+
+        #wave-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 2; /* 地図より上 */
+        }
+
+        /* --- パネルエリア --- */
+        #info-panel {
+            background: var(--panel-bg);
+            padding: 15px;
+            z-index: 10;
+            border-top: 2px solid #333;
+            min-height: 200px;
+        }
+
+        @media (min-width: 768px) {
+            #info-panel {
+                width: 320px;
+                height: 100%;
+                border-top: none;
+                border-left: 2px solid #333;
+            }
+        }
+
+        .shindo { background: var(--accent); font-size: 3rem; text-align: center; border-radius: 8px; margin: 10px 0; font-weight: bold; }
+        .label { color: #888; font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+
+<div id="map-viewport">
+    <div id="map-stage" id="stage">
+        <img id="kmoni-img" src="" alt="Loading Map...">
+        <canvas id="wave-canvas"></canvas>
+    </div>
+</div>
+
+<div id="info-panel">
+    <div style="color:var(--accent); font-weight:bold;">緊急地震速報</div>
+    <h2 id="hypo" style="margin:5px 0;">待機中...</h2>
+    <div class="label">最大震度</div>
+    <div id="max-int" class="shindo">--</div>
+    <div id="details" style="font-size:0.9rem;">M -- / --km</div>
+    <div id="clock" style="margin-top:20px; color:#444; font-size:0.8rem;">00:00:00</div>
+</div>
+
+<script>
+    const stage = document.getElementById('map-stage');
+    const kmoniImg = document.getElementById('kmoni-img');
+    const canvas = document.getElementById('wave-canvas');
+    const ctx = canvas.getContext('2d');
+
+    let currentEEW = null;
+    let lastEventId = "";
+
+    // 強震モニタ更新（ラグを15秒にして確実に画像がある状態にする）
+    function updateKmoni() {
+        const now = new Date(Date.now() - 15000); 
+        const fmt = (d) => d.toISOString().replace(/[-:T]/g, '').split('.')[0];
+        const ts = fmt(now);
+        const date = ts.substring(0, 8);
+        
+        const rawUrl = `http://www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/jma_s/${date}/${ts}.jma_s.gif`;
+        kmoniImg.src = `https://images.weserv.nl/?url=${encodeURIComponent(rawUrl.replace('http://', ''))}`;
+        document.getElementById('clock').innerText = now.toLocaleTimeString();
+    }
+
+    // 速報取得
+    async function fetchEEW() {
+        try {
+            const res = await fetch('https://api.wolfx.jp/jma_eew.json');
+            const data = await res.json();
+            if (!data || data.Title === "Dummy") return;
+
+            if (data.EventID !== lastEventId) {
+                document.getElementById('hypo').innerText = data.Hypocenter;
+                document.getElementById('max-int').innerText = data.MaxIntensity;
+                document.getElementById('details').innerText = `M${data.Magunitude} / 深さ${data.Depth}km`;
+                
+                // 自動ズーム (一旦、ズーム倍率を控えめの1.5倍に)
+                const lon = parseFloat(data.Longitude);
+                const lat = parseFloat(data.Latitude);
+                const tx = (lon - 137.5) * (window.innerWidth / 20);
+                const ty = (37.5 - lat) * (window.innerHeight / 15);
+                
+                stage.style.transform = `scale(1.5) translate(${-tx}px, ${-ty}px)`;
+                
+                currentEEW = data;
+                lastEventId = data.EventID;
+            }
+        } catch (e) {}
+    }
+
+    function resize() {
+        canvas.width = canvas.parentElement.clientWidth;
+        canvas.height = canvas.parentElement.clientHeight;
+    }
+
+    window.onresize = resize;
+    resize();
+    setInterval(updateKmoni, 2000);
+    setInterval(fetchEEW, 5000);
+    updateKmoni();
+    fetchEEW();
+</script>
+</body>
+</html>
 
         #map-stage {
             position: absolute;
