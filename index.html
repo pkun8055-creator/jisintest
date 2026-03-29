@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>testhtml</title>
+    <title>Zero Quake Clone - Final Fix</title>
     <style>
         :root {
             --bg-color: #000000;
@@ -12,25 +12,18 @@
             --text: #ffffff;
         }
 
-        /* --- ベースレイアウト --- */
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
             background-color: var(--bg-color);
             color: var(--text);
-            font-family: 'Helvetica Neue', Arial, sans-serif;
+            font-family: sans-serif;
             overflow: hidden;
-        }
-
-        body {
             display: flex;
-            flex-direction: column; /* スマホ: 縦並び */
+            flex-direction: column;
         }
 
-        @media (min-width: 768px) {
-            body { flex-direction: row; } /* PC: 横並び */
-        }
+        @media (min-width: 768px) { body { flex-direction: row; } }
 
-        /* --- マップエリア --- */
         #map-viewport {
             flex: 1;
             position: relative;
@@ -39,7 +32,6 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            z-index: 1;
         }
 
         #map-stage {
@@ -50,76 +42,57 @@
             justify-content: center;
             align-items: center;
             transform-origin: center center;
-            transition: transform 1.2s cubic-bezier(0.22, 1, 0.36, 1);
-            z-index: 2;
+            /* アニメーションを少しゆっくりにして確認しやすくする */
+            transition: transform 1.5s cubic-bezier(0.19, 1, 0.22, 1);
         }
 
         #kmoni-img {
             max-width: 100%;
-            max-height: 100%;
+            max-height: 95%;
             object-fit: contain;
-            filter: brightness(1.2) contrast(1.1);
+            filter: brightness(1.2);
             pointer-events: none;
-            user-select: none;
         }
 
         #wave-canvas {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0; width: 100%; height: 100%;
             pointer-events: none;
             z-index: 5;
         }
 
-        /* --- 情報パネル --- */
         #info-panel {
             background: var(--panel-bg);
             border-top: 2px solid #333;
             padding: 15px;
             z-index: 10;
+            height: 250px;
             display: flex;
             flex-direction: column;
             box-sizing: border-box;
-            height: 250px;
         }
 
         @media (min-width: 768px) {
-            #info-panel {
-                width: 350px;
-                height: 100%;
-                border-top: none;
-                border-left: 2px solid #333;
-            }
+            #info-panel { width: 350px; height: 100%; border-top: none; border-left: 2px solid #333; }
         }
 
-        .label { color: #888; font-size: 0.75rem; letter-spacing: 1px; }
-        #hypocenter { font-size: 1.6rem; margin: 5px 0; font-weight: bold; }
-        
+        #hypocenter { font-size: 1.6rem; font-weight: bold; margin: 5px 0; }
         .shindo-box {
             background: var(--accent);
-            color: white;
             font-size: 4rem;
             text-align: center;
             border-radius: 8px;
-            padding: 5px;
             font-weight: 900;
             margin: 10px 0;
-            line-height: 1;
         }
-
-        .data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 5px; }
-        .val { font-size: 1.1rem; font-weight: bold; }
-
-        .footer { margin-top: auto; font-size: 0.7rem; color: #444; text-align: right; }
+        .label { color: #888; font-size: 0.75rem; }
     </style>
 </head>
 <body>
 
 <div id="map-viewport">
     <div id="map-stage">
-        <img id="kmoni-img" src="" alt="地図読込中...">
+        <img id="kmoni-img" src="" alt="Map Loading...">
         <canvas id="wave-canvas"></canvas>
     </div>
 </div>
@@ -127,23 +100,14 @@
 <div id="info-panel">
     <div class="label" style="color:var(--accent)">EARTHQUAKE REPORT</div>
     <div id="hypocenter">待機中...</div>
-    
     <div class="label">最大震度</div>
     <div id="max-int" class="shindo-box">--</div>
-
-    <div class="data-grid">
-        <div>
-            <div class="label">規模</div>
-            <div id="mag" class="val">--</div>
-        </div>
-        <div>
-            <div class="label">深さー</div>
-            <div id="depth" class="val">--</div>
-        </div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div><div class="label">規模</div><div id="mag" style="font-weight:bold;">--</div></div>
+        <div><div class="label">深さ</div><div id="depth" style="font-weight:bold;">--</div></div>
     </div>
-
-    <div class="footer">
-        Realtime: <span id="clock">00:00:00</span>
+    <div style="margin-top:auto; font-size:0.7rem; color:#444; text-align:right;">
+        Clock: <span id="clock">00:00:00</span>
     </div>
 </div>
 
@@ -155,11 +119,8 @@
 
     let currentEEW = null;
     let lastEventId = "";
-    let scale = 1;
 
-    // --- 1. 画像更新 (HTTPS対応プロキシを使用) ---
     function updateKmoni() {
-        // 安定のため15秒前の画像を取得
         const now = new Date(Date.now() - 15000);
         const Y = now.getFullYear();
         const M = String(now.getMonth() + 1).padStart(2, '0');
@@ -167,17 +128,11 @@
         const h = String(now.getHours()).padStart(2, '0');
         const m = String(now.getMinutes()).padStart(2, '0');
         const s = String(now.getSeconds()).padStart(2, '0');
-        
-        // 防災科研のURL（httpなのでGitHub Pagesでは直接読み込めない）
         const rawUrl = `www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/jma_s/${Y}${M}${D}/${Y}${M}${D}${h}${m}${s}.jma_s.gif`;
-        
-        // weserv.nlプロキシを介してHTTPSとして読み込む
         kmoniImg.src = `https://images.weserv.nl/?url=${rawUrl}&noshp`;
-        
         document.getElementById('clock').innerText = now.toLocaleTimeString();
     }
 
-    // --- 2. 地震速報取得 ---
     async function fetchEEW() {
         try {
             const res = await fetch('https://api.wolfx.jp/jma_eew.json');
@@ -190,25 +145,33 @@
                 document.getElementById('mag').innerText = "M" + data.Magunitude;
                 document.getElementById('depth').innerText = data.Depth + "km";
                 
-                // 自動ズーム発動
+                // --- 修正版：ズーム座標計算 ---
                 focusHypocenter(data.Latitude, data.Longitude);
+                
                 currentEEW = data;
                 lastEventId = data.EventID;
             }
-        } catch (e) { console.error(e); }
+        } catch (e) {}
     }
 
-    // --- 3. 自動ズーム計算 ---
     function focusHypocenter(lat, lon) {
         if (!lat || !lon) return;
-        const targetX = (parseFloat(lon) - 137.5) * (window.innerWidth / 18); 
-        const targetY = (37.5 - parseFloat(lat)) * (window.innerHeight / 12);
 
-        scale = 1.8;
-        stage.style.transform = `scale(${scale}) translate(${-targetX}px, ${-targetY}px)`;
+        // 地図の基準点（日本の中央付近：東経137.5度、北緯37.5度）
+        const baseLon = 137.5;
+        const baseLat = 37.5;
+
+        // 移動量の計算（画面サイズに合わせて倍率を調整）
+        // 右上に飛ぶのを防ぐため、引き算の順序と方向を修正
+        const moveX = (baseLon - parseFloat(lon)) * (window.innerWidth / 20);
+        const moveY = (parseFloat(lat) - baseLat) * (window.innerHeight / 15);
+
+        const zoomScale = 1.6; // ズームしすぎないように設定
+
+        // 適用
+        stage.style.transform = `scale(${zoomScale}) translate(${moveX}px, ${moveY}px)`;
     }
 
-    // --- 4. 波紋描画 ---
     function drawWaves() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (currentEEW) {
@@ -216,11 +179,12 @@
             const lat = parseFloat(currentEEW.Latitude);
             const centerX = canvas.width / 2;
             const centerY = canvas.height / 2;
-            const mapX = (lon - 137.5) * (canvas.width / 18) + centerX;
-            const mapY = (37.5 - lat) * (canvas.height / 12) + centerY;
+            
+            // 波紋の描画位置もズーム計算に合わせる
+            const mapX = (lon - 137.5) * (canvas.width / 20) + centerX;
+            const mapY = (37.5 - lat) * (canvas.height / 15) + centerY;
 
-            const originTime = new Date(currentEEW.OriginTime).getTime();
-            const elapsed = (Date.now() - originTime) / 1000;
+            const elapsed = (Date.now() - new Date(currentEEW.OriginTime).getTime()) / 1000;
 
             if (elapsed > 0 && elapsed < 180) {
                 ctx.beginPath();
@@ -246,8 +210,8 @@
 
     window.onresize = resize;
     resize();
-    setInterval(updateKmoni, 2000); // 2秒ごとに地図更新
-    setInterval(fetchEEW, 5000);    // 5秒ごとに速報チェック
+    setInterval(updateKmoni, 2000);
+    setInterval(fetchEEW, 5000);
     updateKmoni();
     fetchEEW();
     drawWaves();
