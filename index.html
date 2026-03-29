@@ -8,41 +8,73 @@
     <style>
         :root { --bg: #000; --panel: #111; --accent: #ff3333; --font: 'DotGothic16', sans-serif; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg); color: #fff; font-family: var(--font); overflow: hidden; display: flex; flex-direction: column; }
+        
+        /* PCレイアウト */
         @media (min-width: 768px) { body { flex-direction: row; } }
 
-        /* アラート点滅 */
+        /* アラート点滅（発生から3分以内のみ） */
         @keyframes alert-border {
             0%, 100% { box-shadow: inset 0 0 0px #f00; background: #000; }
-            50% { box-shadow: inset 0 0 40px #f00; background: #200; }
+            50% { box-shadow: inset 0 0 40px #f00; background: #300; }
         }
         .alerting { animation: alert-border 1s infinite; }
 
-        #map-viewport { flex: 1; position: relative; overflow: hidden; display: flex; justify-content: center; align-items: center; transition: background 0.5s; }
-        #map-stage { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
+        /* マップエリア：画面に合わせて伸縮 */
+        #map-viewport { 
+            flex: 1; 
+            position: relative; 
+            overflow: hidden; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            background: #000;
+            width: 100%;
+        }
         
-        .kmoni-layer { position: absolute; max-width: 100%; max-height: 98%; object-fit: contain; filter: brightness(1.2); opacity: 0; z-index: 1; }
+        #map-stage { 
+            width: 100%; 
+            height: 100%; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            position: relative;
+        }
+        
+        .kmoni-layer { 
+            position: absolute; 
+            width: 100%; 
+            height: 100%; 
+            object-fit: contain; /* 画面サイズに自動で合わせる */
+            filter: brightness(1.2); 
+            opacity: 0; 
+            z-index: 1; 
+        }
         .active { opacity: 1; z-index: 2; }
+
         #wave-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
 
-        /* LIVE表示 */
-        #live-indicator { position: absolute; top: 10px; right: 10px; z-index: 100; font-size: 0.9rem; display: flex; align-items: center; gap: 5px; background: rgba(0,0,0,0.8); padding: 4px 10px; border: 1px solid #444; }
-        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.1; } }
-        .dot { color: #f00; animation: blink 1s infinite; }
-
-        #info-panel { background: var(--panel); border-top: 2px solid #333; padding: 15px; z-index: 10; height: 280px; display: flex; flex-direction: column; box-sizing: border-box; }
-        @media (min-width: 768px) { #info-panel { width: 360px; height: 100%; border-top: none; border-left: 2px solid #333; } }
+        /* 情報パネル：スマホでは下、PCでは右 */
+        #info-panel { 
+            background: var(--panel); 
+            border-top: 2px solid #333; 
+            padding: 15px; 
+            z-index: 10; 
+            height: 280px; 
+            display: flex; 
+            flex-direction: column; 
+            box-sizing: border-box; 
+        }
         
-        .shindo-label { color: var(--accent); font-weight: bold; font-size: 0.9rem; letter-spacing: 2px; }
-        .shindo-box { background: var(--accent); font-size: 5.5rem; text-align: center; border-radius: 4px; font-weight: 900; margin: 5px 0; line-height: 1; text-shadow: 3px 3px #000; border: 2px solid #fff; }
+        @media (min-width: 768px) { 
+            #info-panel { width: 360px; height: 100%; border-top: none; border-left: 2px solid #333; } 
+        }
         
-        #time-display { font-size: 1.2rem; color: #fff; margin-bottom: 5px; }
-        #hypocenter { font-size: 1.8rem; font-weight: bold; color: #fff; border-bottom: 1px solid #444; padding-bottom: 5px; }
+        .shindo-box { background: var(--accent); font-size: 5rem; text-align: center; border-radius: 4px; font-weight: 900; margin: 5px 0; line-height: 1.1; border: 2px solid #fff; }
     </style>
 </head>
 <body id="main-body">
 
 <div id="map-viewport">
-    <div id="live-indicator"><span class="dot">●</span> MONITORING <span id="delay-txt" style="font-size:0.7rem; color:#aaa; margin-left:5px;">LAG: 25s</span></div>
     <div id="map-stage">
         <img id="kmoni-1" class="kmoni-layer active">
         <img id="kmoni-2" class="kmoni-layer">
@@ -51,21 +83,20 @@
 </div>
 
 <div id="info-panel">
-    <div id="status-display" style="font-size: 0.8rem; color: #888; margin-bottom: 10px;">系統待機中...</div>
+    <div id="status-display" style="font-size: 0.9rem; color: #888; margin-bottom: 5px;">待機中...</div>
+    <div id="hypocenter" style="font-size: 1.6rem; font-weight: bold; border-bottom: 1px solid #444;">---</div>
+    <div id="time-display" style="font-size: 1.1rem; margin: 5px 0;">--時--分頃</div>
     
-    <div id="hypocenter">---</div>
-    <div id="time-display">--時--分頃 発生</div>
-    
-    <div class="shindo-label">MAX INTENSITY</div>
+    <div style="color: var(--accent); font-size: 0.8rem; font-weight: bold;">MAX INTENSITY</div>
     <div id="max-int" class="shindo-box">--</div>
     
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top: 5px;">
-        <div><div style="color:#888; font-size:0.75rem;">MAGNITUDE</div><div id="mag" style="font-size:1.5rem; border-left: 3px solid #444; padding-left: 8px;">--</div></div>
-        <div><div style="color:#888; font-size:0.75rem;">DEPTH</div><div id="depth" style="font-size:1.5rem; border-left: 3px solid #444; padding-left: 8px;">--</div></div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div><div style="color:#888; font-size:0.7rem;">MAGNITUDE</div><div id="mag" style="font-size:1.4rem;">--</div></div>
+        <div><div style="color:#888; font-size:0.7rem;">DEPTH</div><div id="depth" style="font-size:1.4rem;">--</div></div>
     </div>
     
-    <div style="margin-top:auto; font-size:0.8rem; color:#444; text-align:right; border-top: 1px solid #222; padding-top: 5px;">
-        CLOCK: <span id="clock" style="color:#888">00:00:00</span>
+    <div style="margin-top:auto; font-size:0.8rem; color:#444; text-align:right;">
+        CLOCK: <span id="clock">00:00:00</span>
     </div>
 </div>
 
@@ -91,7 +122,6 @@
         const nextImg = document.getElementById(`kmoni-${nextLayerNum}`);
         const currentImg = document.getElementById(`kmoni-${activeLayer}`);
 
-        nextImg.onerror = () => { nextImg.style.opacity = 0; };
         nextImg.onload = () => {
             nextImg.style.opacity = 1;
             nextImg.classList.add('active');
@@ -107,47 +137,54 @@
             const res = await fetch('https://api.wolfx.jp/jma_eew.json');
             const data = await res.json();
             
-            const statusDisplay = document.getElementById('status-display');
             const mainBody = document.getElementById('main-body');
+            const statusDisplay = document.getElementById('status-display');
 
             if (data && data.Title !== "Dummy") {
-                // 地震発生時の表示
-                const origin = new Date(data.OriginTime);
-                const timeStr = `${origin.getHours()}時${origin.getMinutes()}分`;
-                
-                statusDisplay.innerText = `🔴 ${timeStr}頃 地震発生中`;
-                statusDisplay.style.color = "#ff3333";
-                mainBody.classList.add('alerting');
-                
-                document.getElementById('time-display').innerText = `${timeStr}頃 発生`;
-                document.getElementById('hypocenter').innerText = data.Hypocenter;
-                document.getElementById('max-int').innerText = data.MaxIntensity;
-                document.getElementById('mag').innerText = "M" + data.Magunitude;
-                document.getElementById('depth').innerText = data.Depth + "km";
-                
-                if (data.EventID !== lastEventId) {
-                    currentEEW = data; lastEventId = data.EventID;
-                    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                const originTime = new Date(data.OriginTime);
+                const diffSec = (Date.now() - originTime.getTime()) / 1000;
+
+                // 地震発生から180秒（3分）以内ならアラート表示
+                if (diffSec < 180) {
+                    mainBody.classList.add('alerting');
+                    statusDisplay.innerText = "🔴 地震発生中 / EEW ACTIVE";
+                    statusDisplay.style.color = "#ff3333";
+                    
+                    document.getElementById('hypocenter').innerText = data.Hypocenter;
+                    document.getElementById('time-display').innerText = `${originTime.getHours()}時${originTime.getMinutes()}分頃`;
+                    document.getElementById('max-int').innerText = data.MaxIntensity;
+                    document.getElementById('mag').innerText = "M" + data.Magunitude;
+                    document.getElementById('depth').innerText = data.Depth + "km";
+                    
+                    if (data.EventID !== lastEventId) {
+                        currentEEW = data; lastEventId = data.EventID;
+                        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                    }
+                } else {
+                    // 3分過ぎたら画面を通常に戻す
+                    resetDisplay();
                 }
             } else {
-                // 通常時の表示
-                statusDisplay.innerText = `NORMAL / 最終更新 ${new Date().toLocaleTimeString()}`;
-                statusDisplay.style.color = "#888";
-                mainBody.classList.remove('alerting');
-                // ※通常時は前回の地震情報を残すか、クリアするか選べますが、今回は「待機」感を出すためそのままにします
+                resetDisplay();
             }
         } catch (e) {}
+    }
+
+    function resetDisplay() {
+        document.getElementById('main-body').classList.remove('alerting');
+        document.getElementById('status-display').innerText = "待機中 / NORMAL";
+        document.getElementById('status-display').style.color = "#888";
+        // 文字情報はあえて残さず、クリアしたい場合はここで書き換えてください
     }
 
     function drawWaves() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (currentEEW) {
-            const centerX = canvas.width / 2;
-            const centerY = canvas.height / 2;
-            const mapX = (parseFloat(currentEEW.Longitude) - 137.5) * (canvas.width / 16) + centerX;
-            const mapY = (37.5 - parseFloat(currentEEW.Latitude)) * (canvas.height / 11) + centerY;
             const elapsed = (Date.now() - new Date(currentEEW.OriginTime).getTime()) / 1000;
+            // 3分経過したら波紋を消す
             if (elapsed > 0 && elapsed < 180) {
+                const mapX = (parseFloat(currentEEW.Longitude) - 137.5) * (canvas.width / 16) + (canvas.width / 2);
+                const mapY = (37.5 - parseFloat(currentEEW.Latitude)) * (canvas.height / 11) + (canvas.height / 2);
                 ctx.strokeStyle = 'cyan'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(mapX, mapY, elapsed * 30, 0, Math.PI * 2); ctx.stroke();
                 ctx.strokeStyle = 'red'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(mapX, mapY, elapsed * 18, 0, Math.PI * 2); ctx.stroke();
             }
