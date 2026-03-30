@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Zero Quake - Final Fix</title>
+    <title>地震テスト</title>
     <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
     <style>
         :root { --bg: #000; --panel: #111; --accent: #ff3333; --font: 'DotGothic16', sans-serif; }
@@ -76,7 +76,8 @@
         const rawUrl = `www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/jma_s/${Y}${M}${D}/${Y}${M}${D}${h}${m}${s}.jma_s.gif`;
         const nextUrl = `https://images.weserv.nl/?url=${rawUrl}&noshp`;
 
-        const nextLayerNum = activeLayer === 1 ? 2 : 1;
+        // ここを修正：nextLayerNumをちゃんと定義する
+        const nextLayerNum = (activeLayer === 1) ? 2 : 1;
         const nextImg = document.getElementById(`kmoni-${nextLayerNum}`);
         const currentImg = document.getElementById(`kmoni-${activeLayer}`);
 
@@ -93,7 +94,6 @@
 
     async function fetchEEW() {
         try {
-            // 1. まず速報(EEW)をチェック
             const res = await fetch('https://api.wolfx.jp/jma_eew.json');
             const data = await res.json();
             
@@ -101,13 +101,12 @@
                 const originTime = new Date(data.OriginTime);
                 const diffSec = (Date.now() - originTime.getTime()) / 1000;
                 
-                if (diffSec < 180) { // 3分以内なら発生中
+                if (diffSec < 180) {
                     updateUI(data, true);
                     return;
                 }
             }
             
-            // 2. 速報がない場合は「履歴」をチェック
             const resHis = await fetch('https://api.wolfx.jp/jma_seismic.json');
             const historyData = await resHis.json();
             if (historyData && historyData.latest) {
@@ -144,8 +143,7 @@
             mainBody.classList.remove('alerting');
             statusDisplay.innerText = `${timeStr}頃 ${location}で地震がありました`;
             statusDisplay.style.color = "#fff";
-            // 履歴時は波紋をリセット（描画を止める）
-            if (!mainBody.classList.contains('alerting')) currentEEW = null;
+            currentEEW = null;
         }
     }
 
