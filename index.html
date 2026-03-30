@@ -3,12 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Zero Quake - Hybrid Fix</title>
+    <title>Zero Quake - Debug Edition</title>
     <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
     <style>
         :root { --bg: #000; --panel: #111; --accent: #ff3333; --font: 'DotGothic16', sans-serif; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg); color: #fff; font-family: var(--font); overflow: hidden; display: flex; flex-direction: column; }
         @media (min-width: 768px) { body { flex-direction: row; } }
+
+        /* エラー表示用 */
+        #debug-log { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(255,0,0,0.8); color: #fff; font-size: 10px; z-index: 9999; padding: 5px; pointer-events: none; }
 
         @keyframes alert-border {
             0%, 100% { box-shadow: inset 0 0 0px #f00; background: #000; }
@@ -19,7 +22,7 @@
         #map-viewport { flex: 1; position: relative; overflow: hidden; display: flex; justify-content: center; align-items: center; background: #000; }
         #map-stage { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
         
-        .kmoni-layer { position: absolute; width: 100%; height: 100%; object-fit: contain; filter: brightness(1.2); opacity: 0; z-index: 1; }
+        .kmoni-layer { position: absolute; width: 100%; height: 100%; object-fit: contain; filter: brightness(1.2); opacity: 0; z-index: 1; transition: opacity 0.3s; }
         .active { opacity: 1; z-index: 2; }
         #wave-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
 
@@ -32,16 +35,18 @@
 </head>
 <body id="main-body">
 
+<div id="debug-log">SYSTEM READY...</div>
+
 <div id="map-viewport">
     <div id="map-stage">
-        <img id="kmoni-1" class="kmoni-layer active" src="">
-        <img id="kmoni-2" class="kmoni-layer" src="">
+        <img id="kmoni-1" class="kmoni-layer active">
+        <img id="kmoni-2" class="kmoni-layer">
         <canvas id="wave-canvas"></canvas>
     </div>
 </div>
 
 <div id="info-panel">
-    <div id="status-display">接続中...</div>
+    <div id="status-display">API接続待機中...</div>
     <div id="hypocenter" style="font-size: 1.8rem; font-weight: bold; border-bottom: 1px solid #444;">---</div>
     <div id="time-display" style="font-size: 1.1rem; margin: 5px 0; color: #aaa;">--時--分頃 発生</div>
     
@@ -59,11 +64,13 @@
 </div>
 
 <script>
+    const debug = (msg) => { document.getElementById('debug-log').innerText = msg; console.log(msg); };
     let activeLayerNum = 1;
     const canvas = document.getElementById('wave-canvas');
     const ctx = canvas.getContext('2d');
     let currentEEW = null; 
 
+    // 強震モニタ更新
     function updateKmoni() {
         const now = new Date(Date.now() - 25000);
         const Y = now.getFullYear();
@@ -72,88 +79,78 @@
         const h = String(now.getHours()).padStart(2, '0');
         const m = String(now.getMinutes()).padStart(2, '0');
         const s = String(now.getSeconds()).padStart(2, '0');
-        const rawUrl = `www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/jma_s/${Y}${M}${D}/${Y}${M}${D}${h}${m}${s}.jma_s.gif`;
-        const nextUrl = `https://images.weserv.nl/?url=${rawUrl}&noshp`;
+        const nextUrl = `https://images.weserv.nl/?url=www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/jma_s/${Y}${M}${D}/${Y}${M}${D}${h}${m}${s}.jma_s.gif&noshp`;
 
         const nextNum = (activeLayerNum === 1) ? 2 : 1;
         const nextImg = document.getElementById(`kmoni-${nextNum}`);
         const currentImg = document.getElementById(`kmoni-${activeLayerNum}`);
 
         nextImg.onload = () => {
-            nextImg.style.opacity = 1;
             nextImg.classList.add('active');
-            currentImg.style.opacity = 0;
+            nextImg.style.opacity = 1;
             currentImg.classList.remove('active');
+            currentImg.style.opacity = 0;
             activeLayerNum = nextNum;
         };
         nextImg.src = nextUrl;
         document.getElementById('clock').innerText = new Date().toLocaleTimeString();
     }
 
+    // 地震情報取得
     async function fetchEEW() {
         try {
-            // 1. まずは「速報」をチェック
+            debug("Fetching Wolfx API...");
+            // 1. 速報
             const resEEW = await fetch('https://api.wolfx.jp/jma_eew.json');
             const dataEEW = await resEEW.json();
             
             if (dataEEW && dataEEW.Title !== "Dummy") {
                 const originTime = new Date(dataEEW.OriginTime);
-                const diffSec = (Date.now() - originTime.getTime()) / 1000;
-                // 3分以内の速報があればそれを優先表示
-                if (diffSec < 180) {
+                if ((Date.now() - originTime.getTime()) / 1000 < 180) {
                     updateUI(dataEEW, true);
+                    debug("EEW Active");
                     return;
                 }
             }
             
-            // 2. 速報がない場合は「最新の地震履歴」を取得
+            // 2. 履歴
             const resSeismic = await fetch('https://api.wolfx.jp/jma_seismic.json');
             const dataSeismic = await resSeismic.json();
+            debug("History Loaded");
             
-            // Wolfx APIの履歴構造に合わせてデータを抽出
-            if (dataSeismic && dataSeismic.latest) {
-                updateUI(dataSeismic.latest, false);
-            } else if (Array.isArray(dataSeismic)) {
-                updateUI(dataSeismic[0], false);
-            }
+            const latest = Array.isArray(dataSeismic) ? dataSeismic[0] : dataSeismic.latest;
+            if (latest) updateUI(latest, false);
+
         } catch (e) {
-            console.error("Fetch error:", e);
+            debug("ERROR: " + e.message);
         }
     }
 
     function updateUI(data, isActive) {
         if (!data) return;
-
         const mainBody = document.getElementById('main-body');
         const statusDisplay = document.getElementById('status-display');
         
-        // 時刻のパース
         let timeStr = "--:--";
         if (data.OriginTime) {
             const date = new Date(data.OriginTime);
             timeStr = `${date.getHours()}時${date.getMinutes()}分`;
         }
         
-        // データの割り当て（APIによってキーが異なる場合に対応）
-        const location = data.Hypocenter || data.Place || "調査中";
-        const maxInt = data.MaxIntensity || data.Intensity || "--";
-        const mag = data.Magunitude || data.Magnitude || "--";
-        const depth = data.Depth || "--";
-
-        document.getElementById('hypocenter').innerText = location;
+        document.getElementById('hypocenter').innerText = data.Hypocenter || data.Place || "不明";
         document.getElementById('time-display').innerText = `${timeStr}頃 発生`;
-        document.getElementById('max-int').innerText = maxInt;
-        document.getElementById('mag').innerText = "M" + mag;
-        document.getElementById('depth').innerText = depth + "km";
+        document.getElementById('max-int').innerText = data.MaxIntensity || data.Intensity || "--";
+        document.getElementById('mag').innerText = "M" + (data.Magunitude || data.Magnitude || "--");
+        document.getElementById('depth').innerText = (data.Depth || "--") + "km";
 
         if (isActive) {
             mainBody.classList.add('alerting');
-            statusDisplay.innerText = `🔴 ${timeStr}頃 ${location}で地震発生中`;
+            statusDisplay.innerText = `🔴 ${timeStr}頃 地震発生中`;
             statusDisplay.style.color = "#ff3333";
             currentEEW = data; 
         } else {
             mainBody.classList.remove('alerting');
-            statusDisplay.innerText = `${timeStr}頃 ${location}で地震がありました`;
+            statusDisplay.innerText = `${timeStr}頃 地震がありました`;
             statusDisplay.style.color = "#fff";
             currentEEW = null;
         }
