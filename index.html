@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Zero Quake - Final Edition</title>
+    <title>Zero Quake - Hybrid Fix</title>
     <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
     <style>
         :root { --bg: #000; --panel: #111; --accent: #ff3333; --font: 'DotGothic16', sans-serif; }
@@ -80,10 +80,10 @@
         const currentImg = document.getElementById(`kmoni-${activeLayerNum}`);
 
         nextImg.onload = () => {
-            nextImg.classList.add('active');
             nextImg.style.opacity = 1;
-            currentImg.classList.remove('active');
+            nextImg.classList.add('active');
             currentImg.style.opacity = 0;
+            currentImg.classList.remove('active');
             activeLayerNum = nextNum;
         };
         nextImg.src = nextUrl;
@@ -92,22 +92,29 @@
 
     async function fetchEEW() {
         try {
-            const res = await fetch('https://api.wolfx.jp/jma_eew.json');
-            const data = await res.json();
+            // 1. まずは「速報」をチェック
+            const resEEW = await fetch('https://api.wolfx.jp/jma_eew.json');
+            const dataEEW = await resEEW.json();
             
-            if (data && data.Title !== "Dummy") {
-                const originTime = new Date(data.OriginTime);
+            if (dataEEW && dataEEW.Title !== "Dummy") {
+                const originTime = new Date(dataEEW.OriginTime);
                 const diffSec = (Date.now() - originTime.getTime()) / 1000;
+                // 3分以内の速報があればそれを優先表示
                 if (diffSec < 180) {
-                    updateUI(data, true);
+                    updateUI(dataEEW, true);
                     return;
                 }
             }
             
-            const resHis = await fetch('https://api.wolfx.jp/jma_seismic.json');
-            const historyData = await resHis.json();
-            if (historyData && historyData.latest) {
-                updateUI(historyData.latest, false);
+            // 2. 速報がない場合は「最新の地震履歴」を取得
+            const resSeismic = await fetch('https://api.wolfx.jp/jma_seismic.json');
+            const dataSeismic = await resSeismic.json();
+            
+            // Wolfx APIの履歴構造に合わせてデータを抽出
+            if (dataSeismic && dataSeismic.latest) {
+                updateUI(dataSeismic.latest, false);
+            } else if (Array.isArray(dataSeismic)) {
+                updateUI(dataSeismic[0], false);
             }
         } catch (e) {
             console.error("Fetch error:", e);
@@ -115,21 +122,29 @@
     }
 
     function updateUI(data, isActive) {
+        if (!data) return;
+
         const mainBody = document.getElementById('main-body');
         const statusDisplay = document.getElementById('status-display');
         
+        // 時刻のパース
         let timeStr = "--:--";
         if (data.OriginTime) {
             const date = new Date(data.OriginTime);
             timeStr = `${date.getHours()}時${date.getMinutes()}分`;
         }
         
-        const location = data.Hypocenter || data.Place || "不明";
+        // データの割り当て（APIによってキーが異なる場合に対応）
+        const location = data.Hypocenter || data.Place || "調査中";
+        const maxInt = data.MaxIntensity || data.Intensity || "--";
+        const mag = data.Magunitude || data.Magnitude || "--";
+        const depth = data.Depth || "--";
+
         document.getElementById('hypocenter').innerText = location;
         document.getElementById('time-display').innerText = `${timeStr}頃 発生`;
-        document.getElementById('max-int').innerText = data.MaxIntensity || "--";
-        document.getElementById('mag').innerText = "M" + (data.Magunitude || data.Magnitude || "--");
-        document.getElementById('depth').innerText = (data.Depth || "--") + "km";
+        document.getElementById('max-int').innerText = maxInt;
+        document.getElementById('mag').innerText = "M" + mag;
+        document.getElementById('depth').innerText = depth + "km";
 
         if (isActive) {
             mainBody.classList.add('alerting');
@@ -146,8 +161,7 @@
 
     function drawWaves() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const mainBody = document.getElementById('main-body');
-        if (currentEEW && mainBody.classList.contains('alerting')) {
+        if (currentEEW && document.getElementById('main-body').classList.contains('alerting')) {
             const elapsed = (Date.now() - new Date(currentEEW.OriginTime).getTime()) / 1000;
             if (elapsed > 0 && elapsed < 180) {
                 const mapX = (parseFloat(currentEEW.Longitude) - 137.5) * (canvas.width / 16) + (canvas.width / 2);
