@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>地震情報 for Gemini</title>
+    <title>Zero Quake - Final Fix</title>
     <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
     <style>
         :root { --bg: #000; --panel: #111; --accent: #ff3333; --font: 'DotGothic16', sans-serif; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg); color: #fff; font-family: var(--font); overflow: hidden; display: flex; flex-direction: column; }
         @media (min-width: 768px) { body { flex-direction: row; } }
 
-        /* アラート点滅 */
         @keyframes alert-border {
             0%, 100% { box-shadow: inset 0 0 0px #f00; background: #000; }
             50% { box-shadow: inset 0 0 40px #f00; background: #300; }
@@ -63,7 +62,8 @@
     let activeLayer = 1;
     const canvas = document.getElementById('wave-canvas');
     const ctx = canvas.getContext('2d');
-    let currentEEW = null; let lastEventId = "";
+    let currentEEW = null; 
+    let lastEventId = "";
 
     function updateKmoni() {
         const now = new Date(Date.now() - 25000);
@@ -76,14 +76,16 @@
         const rawUrl = `www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/jma_s/${Y}${M}${D}/${Y}${M}${D}${h}${m}${s}.jma_s.gif`;
         const nextUrl = `https://images.weserv.nl/?url=${rawUrl}&noshp`;
 
-        const nextImg = document.getElementById(`kmoni-${activeLayer === 1 ? 2 : 1}`);
+        const nextLayerNum = activeLayer === 1 ? 2 : 1;
+        const nextImg = document.getElementById(`kmoni-${nextLayerNum}`);
         const currentImg = document.getElementById(`kmoni-${activeLayer}`);
 
         nextImg.onload = () => {
             nextImg.style.opacity = 1;
             nextImg.classList.add('active');
             currentImg.classList.remove('active');
-            activeLayer = activeLayer === 1 ? 2 : 1;
+            currentImg.style.opacity = 0;
+            activeLayer = nextLayerNum;
         };
         nextImg.src = nextUrl;
         document.getElementById('clock').innerText = new Date().toLocaleTimeString();
@@ -91,7 +93,7 @@
 
     async function fetchEEW() {
         try {
-            // 1. 速報(EEW)をチェック
+            // 1. まず速報(EEW)をチェック
             const res = await fetch('https://api.wolfx.jp/jma_eew.json');
             const data = await res.json();
             
@@ -99,33 +101,34 @@
                 const originTime = new Date(data.OriginTime);
                 const diffSec = (Date.now() - originTime.getTime()) / 1000;
                 
-                if (diffSec < 180) { // 3分以内なら「発生中」
+                if (diffSec < 180) { // 3分以内なら発生中
                     updateUI(data, true);
                     return;
                 }
             }
             
-            // 2. 速報がない、または古い場合は「履歴」をチェック
+            // 2. 速報がない場合は「履歴」をチェック
             const resHis = await fetch('https://api.wolfx.jp/jma_seismic.json');
             const historyData = await resHis.json();
             if (historyData && historyData.latest) {
                 updateUI(historyData.latest, false);
             }
-        } catch (e) {}
+        } catch (e) {
+            console.error("Fetch error:", e);
+        }
     }
 
     function updateUI(data, isActive) {
         const mainBody = document.getElementById('main-body');
         const statusDisplay = document.getElementById('status-display');
         
-        // 時刻の取得（APIごとに形式が違うので対応）
         let timeStr = "--:--";
         if (data.OriginTime) {
             const date = new Date(data.OriginTime);
             timeStr = `${date.getHours()}時${date.getMinutes()}分`;
         }
         
-        const location = data.Hypocenter || data.Place || "不明";
+        const location = data.Hypocenter || data.Place || "調査中";
         document.getElementById('hypocenter').innerText = location;
         document.getElementById('time-display').innerText = `${timeStr}頃 発生`;
         document.getElementById('max-int').innerText = data.MaxIntensity || "--";
@@ -141,12 +144,14 @@
             mainBody.classList.remove('alerting');
             statusDisplay.innerText = `${timeStr}頃 ${location}で地震がありました`;
             statusDisplay.style.color = "#fff";
+            // 履歴時は波紋をリセット（描画を止める）
+            if (!mainBody.classList.contains('alerting')) currentEEW = null;
         }
     }
 
     function drawWaves() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (currentEEW) {
+        if (currentEEW && document.getElementById('main-body').classList.contains('alerting')) {
             const elapsed = (Date.now() - new Date(currentEEW.OriginTime).getTime()) / 1000;
             if (elapsed > 0 && elapsed < 180) {
                 const mapX = (parseFloat(currentEEW.Longitude) - 137.5) * (canvas.width / 16) + (canvas.width / 2);
