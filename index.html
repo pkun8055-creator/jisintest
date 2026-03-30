@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>地震テスト</title>
+    <title>Zero Quake - Final Edition</title>
     <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
     <style>
         :root { --bg: #000; --panel: #111; --accent: #ff3333; --font: 'DotGothic16', sans-serif; }
@@ -34,8 +34,8 @@
 
 <div id="map-viewport">
     <div id="map-stage">
-        <img id="kmoni-1" class="kmoni-layer active">
-        <img id="kmoni-2" class="kmoni-layer">
+        <img id="kmoni-1" class="kmoni-layer active" src="">
+        <img id="kmoni-2" class="kmoni-layer" src="">
         <canvas id="wave-canvas"></canvas>
     </div>
 </div>
@@ -59,11 +59,10 @@
 </div>
 
 <script>
-    let activeLayer = 1;
+    let activeLayerNum = 1;
     const canvas = document.getElementById('wave-canvas');
     const ctx = canvas.getContext('2d');
     let currentEEW = null; 
-    let lastEventId = "";
 
     function updateKmoni() {
         const now = new Date(Date.now() - 25000);
@@ -76,17 +75,16 @@
         const rawUrl = `www.kmoni.bosai.go.jp/data/map_img/RealTimeImg/jma_s/${Y}${M}${D}/${Y}${M}${D}${h}${m}${s}.jma_s.gif`;
         const nextUrl = `https://images.weserv.nl/?url=${rawUrl}&noshp`;
 
-        // ここを修正：nextLayerNumをちゃんと定義する
-        const nextLayerNum = (activeLayer === 1) ? 2 : 1;
-        const nextImg = document.getElementById(`kmoni-${nextLayerNum}`);
-        const currentImg = document.getElementById(`kmoni-${activeLayer}`);
+        const nextNum = (activeLayerNum === 1) ? 2 : 1;
+        const nextImg = document.getElementById(`kmoni-${nextNum}`);
+        const currentImg = document.getElementById(`kmoni-${activeLayerNum}`);
 
         nextImg.onload = () => {
-            nextImg.style.opacity = 1;
             nextImg.classList.add('active');
+            nextImg.style.opacity = 1;
             currentImg.classList.remove('active');
             currentImg.style.opacity = 0;
-            activeLayer = nextLayerNum;
+            activeLayerNum = nextNum;
         };
         nextImg.src = nextUrl;
         document.getElementById('clock').innerText = new Date().toLocaleTimeString();
@@ -100,7 +98,6 @@
             if (data && data.Title !== "Dummy") {
                 const originTime = new Date(data.OriginTime);
                 const diffSec = (Date.now() - originTime.getTime()) / 1000;
-                
                 if (diffSec < 180) {
                     updateUI(data, true);
                     return;
@@ -127,7 +124,7 @@
             timeStr = `${date.getHours()}時${date.getMinutes()}分`;
         }
         
-        const location = data.Hypocenter || data.Place || "調査中";
+        const location = data.Hypocenter || data.Place || "不明";
         document.getElementById('hypocenter').innerText = location;
         document.getElementById('time-display').innerText = `${timeStr}頃 発生`;
         document.getElementById('max-int').innerText = data.MaxIntensity || "--";
@@ -149,7 +146,8 @@
 
     function drawWaves() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (currentEEW && document.getElementById('main-body').classList.contains('alerting')) {
+        const mainBody = document.getElementById('main-body');
+        if (currentEEW && mainBody.classList.contains('alerting')) {
             const elapsed = (Date.now() - new Date(currentEEW.OriginTime).getTime()) / 1000;
             if (elapsed > 0 && elapsed < 180) {
                 const mapX = (parseFloat(currentEEW.Longitude) - 137.5) * (canvas.width / 16) + (canvas.width / 2);
@@ -166,10 +164,13 @@
         canvas.height = canvas.parentElement.clientHeight;
     }
 
-    window.onresize = resize; resize();
+    window.onresize = resize;
+    resize();
+    updateKmoni();
+    fetchEEW();
+    drawWaves();
     setInterval(updateKmoni, 2000); 
     setInterval(fetchEEW, 5000);
-    updateKmoni(); fetchEEW(); drawWaves();
 </script>
 </body>
 </html>
